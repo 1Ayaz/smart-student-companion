@@ -1,0 +1,123 @@
+.study-timer {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 2rem;
+    text-align: center;
+}
+
+.timer-header h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--color-pure-white);
+    margin-bottom: 0.5rem;
+}
+
+.timer-header p {
+    color: var(--color-burnt-orange);
+    font-size: 1.125rem;
+    font-weight: 600;
+}
+
+.timer-display {
+    margin: 3rem 0;
+    display: flex;
+    justify-content: center;
+}
+
+.timer-circle {
+    position: relative;
+    width: 300px;
+    height: 300px;
+}
+
+.timer-svg {
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+}
+
+.timer-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.timer-time {
+    font-size: 4rem;
+    font-weight: 700;
+    color: var(--color-pure-white);
+    font-variant-numeric: tabular-nums;
+}
+
+.timer-controls {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    margin-bottom: 3rem;
+}
+
+.btn-timer-primary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 2.5rem;
+    background: linear-gradient(135deg, #E67E22 0%, #D35400 100%);
+    border: none;
+    border-radius: 50px;
+    color: var(--color-pure-white);
+    font-size: 1.125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(230, 126, 34, 0.3);
+}
+
+.btn-timer-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(230, 126, 34, 0.4);
+}
+
+.btn-timer-secondary {
+    width: 56px;
+    height: 56px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    color: var(--color-pure-white);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+}
+
+.btn-timer-secondary:hover {
+    background: rgba(230, 126, 34, 0.2);
+    border-color: var(--color-burnt-orange);
+}
+
+.timer-stats {
+    display: flex;
+    gap: 3rem;
+    justify-content: center;
+}
+
+.stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.stat-number {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--color-burnt-orange);
+}
+
+.stat-label {
+    font-size: 0.875rem;
+    color: var(--color-white-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}

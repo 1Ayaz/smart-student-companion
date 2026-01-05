@@ -1,0 +1,125 @@
+import React, { useState, useRef, useMemo } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
+import { OrbitControls } from '@react-three/drei';
+import * as THREE from 'three';
+import { Mic, Upload, Loader2, Play } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { uploadResumeToAWS, fetchAIResponse } from './api';
+
+// Achievement Palette Colors
+const THEME = {
+  bg: "#0D0D00",    // Ink Black
+  primary: "#E67E22", // Burnt Orange
+  text: "#FFFFFF",    // Pure White
+  accent: "#260D26"   // Slate Grey
+};
+
+function HologramSphere({ status }) {
+  const points = useRef();
+  const particles = useMemo(() => {
+    const temp = [];
+    for (let i = 0; i < 4000; i++) {
+      const theta = THREE.MathUtils.randFloatSpread(360); 
+      const phi = THREE.MathUtils.randFloatSpread(360); 
+      temp.push(2 * Math.sin(theta) * Math.cos(phi), 2 * Math.sin(theta) * Math.sin(phi), 2 * Math.cos(theta));
+    }
+    return new Float32Array(temp);
+  }, []);
+
+  useFrame((state) => {
+    if (!points.current) return;
+    const t = state.clock.getElapsedTime();
+    points.current.rotation.y += 0.003;
+
+    // Reacting to AI status via color and pulse [cite: 33, 43]
+    let color = THEME.accent;
+    let scale = 1;
+
+    if (status === 'speaking') {
+      color = THEME.text; 
+      scale = 1 + Math.sin(t * 12) * 0.07;
+    } else if (status === 'listening') {
+      color = THEME.primary;
+      scale = 1 + Math.sin(t * 4) * 0.15;
+    }
+    points.current.scale.set(scale, scale, scale);
+    points.current.material.color.set(color);
+  });
+
+  return (
+    <points ref={points}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" count={particles.length / 3} array={particles} itemSize={3} />
+      </bufferGeometry>
+      <pointsMaterial size={0.04} transparent opacity={0.8} blending={THREE.AdditiveBlending} />
+    </points>
+  );
+}
+
+export default function InterviewPage() {
+  const [session, setSession] = useState(null);
+  const [status, setStatus] = useState("idle");
+  const audioRef = useRef(new Audio());
+
+  const handleStart = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setStatus("uploading");
+    const id = await uploadResumeToAWS(file);
+    setSession(id);
+    setStatus("ready");
+  };
+
+  const handleMic = () => {
+    const rec = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    rec.onstart = () => setStatus("listening");
+    rec.onresult = async (e) => {
+      const text = e.results[0][0].transcript;
+      setStatus("thinking");
+      const data = await fetchAIResponse(session, text);
+      setStatus("speaking");
+      audioRef.current.src = data.audioUrl;
+      audioRef.current.play();
+      audioRef.current.onended = () => setStatus("ready");
+    };
+    rec.start();
+  };
+
+  return (
+    <div style={{ height: "100%", width: "100%", position: "relative", background: THEME.bg }}>
+      <Canvas camera={{ position: [0, 0, 4] }}>
+        <HologramSphere status={status} />
+        <OrbitControls enableZoom={false} />
+      </Canvas>
+
+      <div style={{ position: "absolute", bottom: "15%", width: "100%", textAlign: "center", zIndex: 10 }}>
+        <AnimatePresence mode="wait">
+          {!session ? (
+            <motion.label key="up" style={styles.btnMain}>
+              {status === "uploading" ? <Loader2 className="spin" /> : <Upload />}
+              <span style={{ marginLeft: 10 }}>SUBMIT RESUME</span>
+              <input type="file" hidden onChange={handleStart} />
+            </motion.label>
+          ) : (
+            <motion.button key="mic" onClick={handleMic} style={styles.btnMic(status)}>
+              {status === "listening" ? <Mic /> : <Play />}
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </div>
+      <style>{`.spin { animation: rotation 1s infinite linear; } @keyframes rotation { from {transform: rotate(0deg);} to {transform: rotate(350deg);} }`}</style>
+    </div>
+  );
+}
+
+const styles = {
+  btnMain: {
+    padding: "16px 40px", background: THEME.primary, color: THEME.text, 
+    borderRadius: "50px", cursor: "pointer", display: "inline-flex", alignItems: "center", fontWeight: "bold"
+  },
+  btnMic: (s) => ({
+    width: "80px", height: "80px", borderRadius: "50%", border: "none",
+    background: s === "listening" ? THEME.primary : THEME.text,
+    color: s === "listening" ? THEME.text : THEME.bg, cursor: "pointer"
+  })
+};
