@@ -239,4 +239,291 @@ export const deleteStudyPlan = async (userId, planId) => {
     }
 };
 
+// ========================
+// SYLLABUS HELPERS
+// ========================
+
+/**
+ * Save syllabus data for a subject in a study plan
+ */
+export const saveSubjectSyllabus = async (userId, planId, subjectId, syllabusData) => {
+    try {
+        const syllabusRef = doc(db, "users", userId, "studyPlans", planId, "syllabus", subjectId);
+        await setDoc(syllabusRef, {
+            ...syllabusData,
+            updatedAt: serverTimestamp()
+        });
+        console.log("✅ Syllabus saved for subject:", subjectId);
+    } catch (error) {
+        console.error("❌ Save syllabus error:", error);
+        throw error;
+    }
+};
+
+/**
+ * Get syllabus data for a subject
+ */
+export const getSubjectSyllabus = async (userId, planId, subjectId) => {
+    try {
+        const syllabusRef = doc(db, "users", userId, "studyPlans", planId, "syllabus", subjectId);
+        const syllabusDoc = await getDoc(syllabusRef);
+
+        if (syllabusDoc.exists()) {
+            return syllabusDoc.data();
+        }
+        return null;
+    } catch (error) {
+        console.error("❌ Get syllabus error:", error);
+        throw error;
+    }
+};
+
+// ========================
+// NOTES HELPERS
+// ========================
+
+/**
+ * Save notes for a specific module
+ */
+export const saveModuleNotes = async (userId, planId, moduleId, notesData) => {
+    try {
+        const notesRef = doc(db, "users", userId, "studyPlans", planId, "notes", moduleId);
+        await setDoc(notesRef, {
+            content: notesData.content,
+            isGenerated: notesData.isGenerated || false,
+            updatedAt: serverTimestamp(),
+            createdAt: notesData.createdAt || serverTimestamp()
+        }, { merge: true });
+        console.log("✅ Notes saved for module:", moduleId);
+    } catch (error) {
+        console.error("❌ Save notes error:", error);
+        throw error;
+    }
+};
+
+/**
+ * Get notes for a specific module
+ */
+export const getModuleNotes = async (userId, planId, moduleId) => {
+    try {
+        const notesRef = doc(db, "users", userId, "studyPlans", planId, "notes", moduleId);
+        const notesDoc = await getDoc(notesRef);
+
+        if (notesDoc.exists()) {
+            return notesDoc.data();
+        }
+        return null;
+    } catch (error) {
+        console.error("❌ Get notes error:", error);
+        throw error;
+    }
+};
+
+// ========================
+// QUIZ HELPERS
+// ========================
+
+/**
+ * Save quiz result for a module
+ */
+export const saveQuizResult = async (userId, planId, moduleId, quizData) => {
+    try {
+        const quizRef = await addDoc(
+            collection(db, "users", userId, "studyPlans", planId, "quizResults"),
+            {
+                moduleId,
+                score: quizData.score,
+                totalQuestions: quizData.totalQuestions,
+                correctAnswers: quizData.correctAnswers,
+                answers: quizData.answers,
+                passed: quizData.score >= 70,
+                createdAt: serverTimestamp()
+            }
+        );
+        console.log("✅ Quiz result saved:", quizRef.id);
+        return quizRef.id;
+    } catch (error) {
+        console.error("❌ Save quiz result error:", error);
+        throw error;
+    }
+};
+
+/**
+ * Get all quiz results for a module
+ */
+export const getQuizResults = async (userId, planId, moduleId) => {
+    try {
+        const resultsSnapshot = await getDocs(
+            collection(db, "users", userId, "studyPlans", planId, "quizResults")
+        );
+        const results = [];
+
+        resultsSnapshot.forEach((doc) => {
+            const data = doc.data();
+            if (data.moduleId === moduleId) {
+                results.push({
+                    id: doc.id,
+                    ...data
+                });
+            }
+        });
+
+        // Sort by date, most recent first
+        results.sort((a, b) => {
+            if (!a.createdAt || !b.createdAt) return 0;
+            return b.createdAt.toMillis() - a.createdAt.toMillis();
+        });
+
+        console.log("✅ Retrieved quiz results:", results.length);
+        return results;
+    } catch (error) {
+        console.error("❌ Get quiz results error:", error);
+        throw error;
+    }
+};
+
+/**
+ * Get the best quiz score for a module
+ */
+export const getBestQuizScore = async (userId, planId, moduleId) => {
+    try {
+        const results = await getQuizResults(userId, planId, moduleId);
+        if (results.length === 0) return null;
+
+        const bestResult = results.reduce((best, current) => {
+            return current.score > best.score ? current : best;
+        }, results[0]);
+
+        return bestResult;
+    } catch (error) {
+        console.error("❌ Get best quiz score error:", error);
+        throw error;
+    }
+};
+
+// ========================
+// MODULE PROGRESS HELPERS
+// ========================
+
+/**
+ * Update progress for a specific module
+ */
+export const updateModuleProgress = async (userId, planId, moduleId, progressData) => {
+    try {
+        const progressRef = doc(db, "users", userId, "studyPlans", planId, "moduleProgress", moduleId);
+        await setDoc(progressRef, {
+            ...progressData,
+            moduleId,
+            updatedAt: serverTimestamp()
+        }, { merge: true });
+
+        console.log("✅ Module progress updated:", moduleId);
+    } catch (error) {
+        console.error("❌ Update module progress error:", error);
+        throw error;
+    }
+};
+
+/**
+ * Get progress for a specific module
+ */
+export const getModuleProgress = async (userId, planId, moduleId) => {
+    try {
+        const progressRef = doc(db, "users", userId, "studyPlans", planId, "moduleProgress", moduleId);
+        const progressDoc = await getDoc(progressRef);
+
+        if (progressDoc.exists()) {
+            return progressDoc.data();
+        }
+        return null;
+    } catch (error) {
+        console.error("❌ Get module progress error:", error);
+        throw error;
+    }
+};
+
+/**
+ * Get all module progress for a plan
+ */
+export const getAllModuleProgress = async (userId, planId) => {
+    try {
+        const progressSnapshot = await getDocs(
+            collection(db, "users", userId, "studyPlans", planId, "moduleProgress")
+        );
+        const progressMap = {};
+
+        progressSnapshot.forEach((doc) => {
+            progressMap[doc.id] = doc.data();
+        });
+
+        console.log("✅ Retrieved all module progress:", Object.keys(progressMap).length);
+        return progressMap;
+    } catch (error) {
+        console.error("❌ Get all module progress error:", error);
+        throw error;
+    }
+};
+
+// ========================
+// FLASHCARD HELPERS
+// ========================
+
+/**
+ * Save auto-generated flashcards for a module
+ */
+export const saveModuleFlashcards = async (userId, planId, moduleId, flashcardsData) => {
+    try {
+        const flashcardsRef = doc(db, "users", userId, "studyPlans", planId, "moduleFlashcards", moduleId);
+        await setDoc(flashcardsRef, {
+            flashcards: flashcardsData,
+            moduleId,
+            updatedAt: serverTimestamp(),
+            createdAt: serverTimestamp()
+        }, { merge: true });
+
+        console.log("✅ Module flashcards saved:", moduleId);
+    } catch (error) {
+        console.error("❌ Save module flashcards error:", error);
+        throw error;
+    }
+};
+
+/**
+ * Get flashcards for a module
+ */
+export const getModuleFlashcards = async (userId, planId, moduleId) => {
+    try {
+        const flashcardsRef = doc(db, "users", userId, "studyPlans", planId, "moduleFlashcards", moduleId);
+        const flashcardsDoc = await getDoc(flashcardsRef);
+
+        if (flashcardsDoc.exists()) {
+            return flashcardsDoc.data().flashcards || [];
+        }
+        return [];
+    } catch (error) {
+        console.error("❌ Get module flashcards error:", error);
+        throw error;
+    }
+};
+
+/**
+ * Add module flashcards to user's main flashcard collection
+ */
+export const addFlashcardsToCollection = async (userId, flashcardsData) => {
+    try {
+        const promises = flashcardsData.map(card =>
+            addDoc(collection(db, "users", userId, "flashcards"), {
+                ...card,
+                createdAt: serverTimestamp()
+            })
+        );
+
+        await Promise.all(promises);
+        console.log("✅ Flashcards added to collection:", flashcardsData.length);
+    } catch (error) {
+        console.error("❌ Add flashcards to collection error:", error);
+        throw error;
+    }
+};
+
 export default app;

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { Calendar, Clock, BookOpen, TrendingUp, Save, Trash2, CheckCircle, Circle } from "lucide-react";
+import { Calendar, Clock, BookOpen, TrendingUp, Save, Trash2, CheckCircle, Circle, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
 import { generateStudyPlan, isGeminiConfigured } from "../gemini-api";
-import { saveStudyPlan, getStudyPlans, updateStudyProgress, deleteStudyPlan } from "../firebase";
+import { saveStudyPlan, getStudyPlans, updateStudyProgress, deleteStudyPlan, getAllModuleProgress } from "../firebase";
+import ModuleViewer from "./ModuleViewer";
 import "../styles/StudyPlanner.css";
 
 export default function StudyPlanner({ user, onLogout }) {
@@ -14,10 +15,14 @@ export default function StudyPlanner({ user, onLogout }) {
         additionalInfo: ""
     });
     const [subjectInput, setSubjectInput] = useState("");
+    const [syllabusData, setSyllabusData] = useState({}); // { subject: { topics: [], hasNotes: boolean } }
+    const [expandedSubject, setExpandedSubject] = useState(null);
     const [generatedPlan, setGeneratedPlan] = useState(null);
     const [savedPlans, setSavedPlans] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [selectedModule, setSelectedModule] = useState(null);
+    const [moduleProgress, setModuleProgress] = useState({});
 
     // Load saved plans on mount
     useEffect(() => {
@@ -37,11 +42,18 @@ export default function StudyPlanner({ user, onLogout }) {
 
     const addSubject = () => {
         if (subjectInput.trim() && !formData.subjects.includes(subjectInput.trim())) {
+            const newSubject = subjectInput.trim();
             setFormData({
                 ...formData,
-                subjects: [...formData.subjects, subjectInput.trim()]
+                subjects: [...formData.subjects, newSubject]
+            });
+            // Initialize syllabus data for new subject
+            setSyllabusData({
+                ...syllabusData,
+                [newSubject]: { topics: [], hasNotes: false }
             });
             setSubjectInput("");
+            setExpandedSubject(newSubject); // Auto-expand for syllabus input
         }
     };
 
@@ -49,6 +61,25 @@ export default function StudyPlanner({ user, onLogout }) {
         setFormData({
             ...formData,
             subjects: formData.subjects.filter(s => s !== subject)
+        });
+        // Remove syllabus data
+        const newSyllabusData = { ...syllabusData };
+        delete newSyllabusData[subject];
+        setSyllabusData(newSyllabusData);
+    };
+
+    const updateSyllabusTopics = (subject, topicsText) => {
+        const topics = topicsText.split('\n').map(t => t.trim()).filter(t => t.length > 0);
+        setSyllabusData({
+            ...syllabusData,
+            [subject]: { ...syllabusData[subject], topics }
+        });
+    };
+
+    const toggleHasNotes = (subject) => {
+        setSyllabusData({
+            ...syllabusData,
+            [subject]: { ...syllabusData[subject], hasNotes: !syllabusData[subject].hasNotes }
         });
     };
 
@@ -62,6 +93,15 @@ export default function StudyPlanner({ user, onLogout }) {
             return;
         }
 
+        // Validate syllabus input
+        for (const subject of formData.subjects) {
+            if (!syllabusData[subject] || syllabusData[subject].topics.length === 0) {
+                setError(`Please add syllabus topics for ${subject}`);
+                setExpandedSubject(subject);
+                return;
+            }
+        }
+
         if (!isGeminiConfigured()) {
             setError("Gemini AI is not configured. Please add your API key to the .env file.");
             return;
@@ -72,7 +112,7 @@ export default function StudyPlanner({ user, onLogout }) {
         setStep("generating");
 
         try {
-            const plan = await generateStudyPlan(formData);
+            const plan = await generateStudyPlan({ ...formData, syllabusData });
             setGeneratedPlan(plan);
             setStep("display");
         } catch (err) {
@@ -129,16 +169,75 @@ export default function StudyPlanner({ user, onLogout }) {
         }
     };
 
-    const loadPlan = (plan) => {
+    const loadPlan = async (plan) => {
         setGeneratedPlan(plan);
+        setSyllabusData(plan.syllabusData || {});
         setStep("display");
+
+        // Load module progress
+        if (plan.id) {
+            try {
+                const progress = await getAllModuleProgress(user.uid, plan.id);
+                setModuleProgress(progress);
+            } catch (err) {
+                console.error("Failed to load module progress:", err);
+            }
+        }
     };
 
     const calculateProgress = () => {
         if (!generatedPlan) return 0;
         const allTopics = generatedPlan.schedule.flatMap(day => day.topics || []);
-        const completed = allTopics.filter(t => t.completed).length;
+
+        // Count completed modules based on moduleProgress
+        const completed = allTopics.filter(topic => {
+            const moduleId = topic.moduleId || `${topic.subject}_${topic.topic}`.replace(/\s+/g, "_");
+            return moduleProgress[moduleId]?.completed || false;
+        }).length;
+
         return allTopics.length > 0 ? Math.round((completed / allTopics.length) * 100) : 0;
+    };
+
+    const handleModuleClick = (topic) => {
+        setSelectedModule(topic);
+    };
+
+    const handleModuleComplete = async (moduleId) => {
+        // Reload module progress
+        if (generatedPlan?.id) {
+            try {
+                const progress = await getAllModuleProgress(user.uid, generatedPlan.id);
+                setModuleProgress(progress);
+            } catch (err) {
+                console.error("Failed to reload progress:", err);
+            }
+        }
+    };
+
+    const handleModuleNavigate = (direction) => {
+        if (!selectedModule || !generatedPlan) return;
+
+        const allTopics = generatedPlan.schedule.flatMap(day => day.topics || []);
+        const currentIndex = allTopics.findIndex(t =>
+            t.moduleId === selectedModule.moduleId ||
+            `${t.subject}_${t.topic}`.replace(/\s+/g, "_") === `${selectedModule.subject}_${selectedModule.topic}`.replace(/\s+/g, "_")
+        );
+
+        if (direction === "next" && currentIndex < allTopics.length - 1) {
+            setSelectedModule(allTopics[currentIndex + 1]);
+        } else if (direction === "previous" && currentIndex > 0) {
+            setSelectedModule(allTopics[currentIndex - 1]);
+        }
+    };
+
+    const getModuleStatus = (topic) => {
+        const moduleId = topic.moduleId || `${topic.subject}_${topic.topic}`.replace(/\s+/g, "_");
+        const progress = moduleProgress[moduleId];
+
+        if (progress?.completed) return "✅";
+        if (progress?.quizPassed) return "🎯";
+        if (progress) return "📝";
+        return "📖";
     };
 
     return (
@@ -196,10 +295,48 @@ export default function StudyPlanner({ user, onLogout }) {
                                 </div>
                                 <div className="subjects-list">
                                     {formData.subjects.map(subject => (
-                                        <span key={subject} className="subject-tag">
-                                            {subject}
-                                            <button onClick={() => removeSubject(subject)}>×</button>
-                                        </span>
+                                        <div key={subject} className="subject-item-wrapper">
+                                            <span className="subject-tag">
+                                                {subject}
+                                                <button onClick={() => removeSubject(subject)}>×</button>
+                                            </span>
+                                            <button
+                                                onClick={() => setExpandedSubject(expandedSubject === subject ? null : subject)}
+                                                className="btn-expand-syllabus"
+                                            >
+                                                {expandedSubject === subject ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                                Syllabus
+                                            </button>
+
+                                            {expandedSubject === subject && (
+                                                <div className="syllabus-input-section">
+                                                    <label className="syllabus-label">Syllabus Topics (one per line)</label>
+                                                    <textarea
+                                                        value={syllabusData[subject]?.topics.join('\n') || ''}
+                                                        onChange={(e) => updateSyllabusTopics(subject, e.target.value)}
+                                                        placeholder="Enter topics, one per line&#10;Example:&#10;Introduction to React&#10;Components and Props&#10;State Management"
+                                                        rows="5"
+                                                        className="syllabus-textarea"
+                                                    />
+                                                    <div className="notes-checkbox">
+                                                        <input
+                                                            type="checkbox"
+                                                            id={`notes-${subject}`}
+                                                            checked={syllabusData[subject]?.hasNotes || false}
+                                                            onChange={() => toggleHasNotes(subject)}
+                                                        />
+                                                        <label htmlFor={`notes-${subject}`}>
+                                                            I have notes for this subject
+                                                        </label>
+                                                    </div>
+                                                    {!syllabusData[subject]?.hasNotes && (
+                                                        <p className="notes-info">
+                                                            ℹ️ Notes will be auto-generated using AI for each topic
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
                                     ))}
                                 </div>
                             </div>
@@ -325,28 +462,35 @@ export default function StudyPlanner({ user, onLogout }) {
                                         </div>
                                         {!day.isRestDay && day.topics && (
                                             <div className="topics-list">
-                                                {day.topics.map((topic, topicIdx) => (
-                                                    <div key={topicIdx} className={`topic-item ${topic.completed ? 'completed' : ''}`}>
-                                                        <button
-                                                            onClick={() => toggleTopicCompletion(dayIdx, topicIdx)}
-                                                            className="topic-checkbox"
-                                                        >
-                                                            {topic.completed ? <CheckCircle size={20} /> : <Circle size={20} />}
-                                                        </button>
-                                                        <div className="topic-details">
-                                                            <div className="topic-header">
-                                                                <span className="topic-subject">{topic.subject}</span>
-                                                                <span className="topic-duration">{topic.duration} min</span>
-                                                            </div>
-                                                            <div className="topic-name">{topic.topic}</div>
-                                                            {topic.resources && topic.resources.length > 0 && (
-                                                                <div className="topic-resources">
-                                                                    📚 {topic.resources.join(", ")}
+                                                {day.topics.map((topic, topicIdx) => {
+                                                    const moduleId = topic.moduleId || `${topic.subject}_${topic.topic}`.replace(/\s+/g, "_");
+                                                    const isCompleted = moduleProgress[moduleId]?.completed || false;
+
+                                                    return (
+                                                        <div key={topicIdx} className={`topic-item ${isCompleted ? 'completed' : ''}`}>
+                                                            <span className="module-status-icon">{getModuleStatus(topic)}</span>
+                                                            <div className="topic-details">
+                                                                <div className="topic-header">
+                                                                    <span className="topic-subject">{topic.subject}</span>
+                                                                    <span className="topic-duration">{topic.duration} min</span>
                                                                 </div>
-                                                            )}
+                                                                <div className="topic-name">{topic.topic}</div>
+                                                                {topic.resources && topic.resources.length > 0 && (
+                                                                    <div className="topic-resources">
+                                                                        📚 {topic.resources.join(", ")}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <button
+                                                                onClick={() => handleModuleClick(topic)}
+                                                                className="btn-open-module"
+                                                            >
+                                                                <ExternalLink size={16} />
+                                                                Open Module
+                                                            </button>
                                                         </div>
-                                                    </div>
-                                                ))}
+                                                    );
+                                                })}
                                             </div>
                                         )}
                                     </div>
@@ -356,6 +500,35 @@ export default function StudyPlanner({ user, onLogout }) {
                     )}
                 </div>
             </div>
+
+            {/* Module Viewer Modal */}
+            {selectedModule && generatedPlan && (
+                <ModuleViewer
+                    module={selectedModule}
+                    user={user}
+                    planId={generatedPlan.id}
+                    onClose={() => setSelectedModule(null)}
+                    onComplete={handleModuleComplete}
+                    onNavigate={handleModuleNavigate}
+                    hasNext={(() => {
+                        const allTopics = generatedPlan.schedule.flatMap(day => day.topics || []);
+                        const currentIndex = allTopics.findIndex(t =>
+                            t.moduleId === selectedModule.moduleId ||
+                            `${t.subject}_${t.topic}`.replace(/\s+/g, "_") === `${selectedModule.subject}_${selectedModule.topic}`.replace(/\s+/g, "_")
+                        );
+                        return currentIndex < allTopics.length - 1;
+                    })()}
+                    hasPrevious={(() => {
+                        const allTopics = generatedPlan.schedule.flatMap(day => day.topics || []);
+                        const currentIndex = allTopics.findIndex(t =>
+                            t.moduleId === selectedModule.moduleId ||
+                            `${t.subject}_${t.topic}`.replace(/\s+/g, "_") === `${selectedModule.subject}_${selectedModule.topic}`.replace(/\s+/g, "_")
+                        );
+                        return currentIndex > 0;
+                    })()}
+                    syllabusData={syllabusData}
+                />
+            )}
         </div>
     );
 }
